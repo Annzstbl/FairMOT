@@ -1,5 +1,5 @@
 {
-    "root":"/home/zyf/dataset",
+    "root":"/data3/publicData/MOT",
     "train":
     {
         "crowdhuman_train":"./data/crowdhuman.train",

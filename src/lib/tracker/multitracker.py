@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from models import *
-from models.decode import mot_decode
+from models.decode import mot_decode, mot_decode_new
 from models.model import create_model, load_model
 from models.utils import _tranpose_and_gather_feat
 from tracking_utils.kalman_filter import KalmanFilter
@@ -28,7 +28,7 @@ class STrack(BaseTrack):
     def __init__(self, tlwh, score, temp_feat, buffer_size=30):
 
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float)
+        self._tlwh = np.asarray(tlwh, dtype=float)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
@@ -241,24 +241,39 @@ class JDETracker(object):
         ''' Step 1: Network forward, get detections & embeddings'''
         with torch.no_grad():
             output = self.model(im_blob)[-1]
-            hm = output['hm'].sigmoid_()
-            wh = output['wh']
+            hm = output['hm'].sigmoid_()#heatmap
+            
+            # # debug #
+            # from utils.plot_debug import plot_heat, plot_img
+            # plot_heat(hm)
+            # plot_img(img0)
+            
+            
+            wh = output['wh']# 如果ltrp==False则是wh,否则是wh和reg of left top & right bottom
             id_feature = output['id']
             id_feature = F.normalize(id_feature, dim=1)
 
-            reg = output['reg'] if self.opt.reg_offset else None
-            dets, inds = mot_decode(hm, wh, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
+            reg = output['reg'] if self.opt.reg_offset else None# reg of center point
+            # dets, inds = mot_decode(hm, wh, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
+            dets, inds = mot_decode_new(hm, wh, id_feature, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
+
             id_feature = _tranpose_and_gather_feat(id_feature, inds)
             id_feature = id_feature.squeeze(0)
             id_feature = id_feature.cpu().numpy()
 
-        dets = self.post_process(dets, meta)
-        dets = self.merge_outputs([dets])[1]
+        dets = self.post_process(dets, meta)#只是重整了一下数据格式
+        dets = self.merge_outputs([dets])[1]#典型大小[500,5]
 
-        remain_inds = dets[:, 4] > self.opt.conf_thres
+        remain_inds = dets[:, 4] > self.opt.conf_thres#根据阈值筛选
         dets = dets[remain_inds]
         id_feature = id_feature[remain_inds]
 
+
+        # # debug #
+        # from utils.plot_debug import  plot_dets, plot_dets_heat
+        # plot_dets(dets, img0)
+        # plot_dets_heat(dets, hm, img0)
+        
         # vis
         '''
         for i in range(0, dets.shape[0]):

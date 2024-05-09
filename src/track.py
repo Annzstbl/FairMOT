@@ -118,9 +118,9 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
 
 
 def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), exp_name='demo',
-         save_images=False, save_videos=False, show_image=True):
+         save_images=False, save_videos=False, show_image=True, result_root=None):
     logger.setLevel(logging.INFO)
-    result_root = os.path.join(data_root, '..', 'results', exp_name)
+    result_root = os.path.join('../exp', 'track', exp_name) if result_root == None else result_root
     mkdir_if_missing(result_root)
     data_type = 'mot'
 
@@ -169,7 +169,7 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     opt = opts().init()
 
     if not opt.val_mot16:
@@ -261,11 +261,11 @@ if __name__ == '__main__':
                       '''
         data_root = os.path.join(opt.data_dir, 'MOT20/images/test')
     seqs = [seq.strip() for seq in seqs_str.split()]
-
+    exp_name = 'default' if opt.exp_id == '' else opt.exp_id
     main(opt,
          data_root=data_root,
          seqs=seqs,
-         exp_name='MOT17_test_public_dla34',
+         exp_name=exp_name,
          show_image=False,
          save_images=False,
          save_videos=False)
