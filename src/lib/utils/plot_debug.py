@@ -5,6 +5,7 @@ import cv2
 from PIL import Image
 from scipy.ndimage import zoom
 import scipy.io as sio
+import torch
 
 # for debug
 def plot_heat(heat):
@@ -27,16 +28,24 @@ def plot_img(img):
     # img [width, height, 3]
     cv2.imwrite('../debug/img.png', img)
     
-def plot_dets(dets, img):
+def plot_dets(dets, img, th=0):
+    # 如果dets是tensor则转为numpy
+    if isinstance(dets, torch.Tensor):
+        dets = dets.cpu().detach().numpy()   
+    
+    # 删掉所有dets[:,4]小于th的行
+    dets = dets[dets[:,4]>th]
     # dets [N, 5] 5: tlbr, score
-    for det in dets:
+    poses = dets[:,:4].astype(np.int32)
+    scores = dets[:,4]
+    
+    for pos, score in zip(poses, scores):
         # to int
-        det = det.astype(np.int32)
-        cv2.rectangle(img, pt1=(det[0], det[1]), pt2=(det[2], det[3]), color=(0, 255, 0), thickness=2)
+        cv2.rectangle(img, pt1=(pos[0], pos[1]), pt2=(pos[2], pos[3]), color=(0, 255, 0), thickness=2)
         # score
-        cv2.putText(img, str(det[4]), (det[0], det[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(img, str(score), (pos[0], pos[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         # center
-        cv2.circle(img, (int((det[0]+det[2])/2), int((det[1]+det[3])/2)), 2, (0, 255, 0), 2)
+        cv2.circle(img, (int((pos[0]+pos[2])/2), int((pos[1]+pos[3])/2)), 2, (0, 255, 0), 2)
     cv2.imwrite('../debug/dets.png', img)
     return img
         

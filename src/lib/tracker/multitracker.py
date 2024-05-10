@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from models import *
-from models.decode import mot_decode, mot_decode_new
+from models.decode import mot_decode
 from models.model import create_model, load_model
 from models.utils import _tranpose_and_gather_feat
 from tracking_utils.kalman_filter import KalmanFilter
@@ -254,14 +254,13 @@ class JDETracker(object):
             id_feature = F.normalize(id_feature, dim=1)
 
             reg = output['reg'] if self.opt.reg_offset else None# reg of center point
-            # dets, inds = mot_decode(hm, wh, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
-            dets, inds = mot_decode_new(hm, wh, id_feature, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
+            dets, inds = mot_decode(hm, wh, id_feature, self.opt.nmsopt, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K, img0_debug=img0)
 
             id_feature = _tranpose_and_gather_feat(id_feature, inds)
             id_feature = id_feature.squeeze(0)
             id_feature = id_feature.cpu().numpy()
 
-        dets = self.post_process(dets, meta)#只是重整了一下数据格式
+        dets = self.post_process(dets, meta)#只是重整了一下数据格式, 应该处理了从图像到特征的4倍问题
         dets = self.merge_outputs([dets])[1]#典型大小[500,5]
 
         remain_inds = dets[:, 4] > self.opt.conf_thres#根据阈值筛选

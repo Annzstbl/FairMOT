@@ -158,7 +158,15 @@ class opts(object):
                              help='category specific bounding box size.')
     self.parser.add_argument('--not_reg_offset', action='store_true',
                              help='not regress local offset.')
-
+    
+    # nms
+    self.parser.add_argument('--nms_type', default='1')
+    self.nms_param_list=['--nms_kernel', '--nms_alpha', '--nms_iou_th']
+    self.parser.add_argument('--nms_kernel', type=int, default=None, help='kernel-size')
+    self.parser.add_argument('--nms_alpha', type=float, default=None, help='alpha')
+    self.parser.add_argument('--nms_iou_th', type=float, default=None)
+    
+    
   def parse(self, args=''):
     if args == '':
       opt = self.parser.parse_args()
@@ -202,6 +210,19 @@ class opts(object):
       model_path = opt.save_dir[:-4] if opt.save_dir.endswith('TEST') \
                   else opt.save_dir
       opt.load_model = os.path.join(model_path, 'model_last.pth')
+      
+    # nms构建
+    opt.nmsopt={}
+    opt.nmsopt['type']=opt.nms_type
+    opt.nmsopt['param']={}
+    for param in self.nms_param_list:
+      param = param.replace('--','')
+      param_wo_nms = param.replace('nms_','')
+      param_value = getattr(opt, param)
+      if param_value != None:
+        opt.nmsopt['param'][param_wo_nms] = param_value
+
+    
     return opt
 
   def update_dataset_info_and_set_heads(self, opt, dataset):
