@@ -78,34 +78,69 @@ def test_emb(
             print(
                 'Extracting {}/{}, # of instances {}, time {:.2f} sec.'.format(batch_i, len(dataloader), len(id_labels),
                                                                                time.time() - t))
+            if batch_i != 0:
+                break
 
     print('Computing pairwise similairity...')
     if len(embedding) < 1:
         return None
-    embedding = torch.stack(embedding, dim=0).cuda()
-    id_labels = torch.LongTensor(id_labels)
+    embedding = torch.stack(embedding, dim=0).cuda()#[N, C]
+    id_labels = torch.LongTensor(id_labels)#[N]
     n = len(id_labels)
     print(n, len(embedding))
     assert len(embedding) == n
 
     embedding = F.normalize(embedding, dim=1)
     pdist = torch.mm(embedding, embedding.t()).cpu().numpy()
-    gt = id_labels.expand(n, n).eq(id_labels.expand(n, n).t()).numpy()
+    gt = id_labels.expand(n, n).eq(id_labels.expand(n, n).t()).numpy()#True对角矩阵
 
     up_triangle = np.where(np.triu(pdist) - np.eye(n) * pdist != 0)
-    pdist = pdist[up_triangle]
+    pdist = pdist[up_triangle]#上三角矩阵铺平
     gt = gt[up_triangle]
 
     far_levels = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
-    far, tar, threshold = metrics.roc_curve(gt, pdist)
-    interp = interpolate.interp1d(far, tar)
-    tar_at_far = [interp(x) for x in far_levels]
+    fpr, tpr, thresholds = metrics.roc_curve(gt, pdist)
+    interp = interpolate.interp1d(fpr, tpr)
+    tpr_at_fpr = [interp(x) for x in far_levels]
     for f, fa in enumerate(far_levels):
-        print('TPR@FAR={:.7f}: {:.4f}'.format(fa, tar_at_far[f]))
-    return tar_at_far
+        print('TPR@FPR={:.7f}: {:.4f}'.format(fa, tpr_at_fpr[f]))
+        
+    import matplotlib.pyplot as plt    
+    plt.figure()
+    plt.plot(fpr, tpr, marker='o')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.grid(True)
+    plt.savefig('../debug/test_emb_tpr_fpr.png', dpi=300)
+
+    # 创建一个图和两个子图
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+
+    # FPR随阈值变化曲线
+    ax[0].plot(thresholds, fpr, marker='o')
+    ax[0].set_title('FPR vs. Thresholds')
+    ax[0].set_xlabel('Thresholds')
+    ax[0].set_ylabel('False Positive Rate')
+    # ax[0].invert_xaxis()  # 反转X轴，因为阈值通常是递减的
+    ax[0].grid(True)
+
+    # TPR随阈值变化曲线
+    ax[1].plot(thresholds, tpr, marker='o', color='red')
+    ax[1].set_title('TPR vs. Thresholds')
+    ax[1].set_xlabel('Thresholds')
+    ax[1].set_ylabel('True Positive Rate')
+    # ax[1].invert_xaxis()  # 反转X轴
+    ax[1].grid(True)
+
+    # 显示图形
+    plt.tight_layout()
+    plt.savefig('../debug/test_emb_tpr_fpr_thresholds.png', dpi=300)
+
+    return tpr_at_fpr
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     opt = opts().init()
     with torch.no_grad():
         tpr = test_emb(opt, batch_size=4)

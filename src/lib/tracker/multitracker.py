@@ -268,10 +268,11 @@ class JDETracker(object):
         id_feature = id_feature[remain_inds]
 
 
-        # # debug #
-        # from utils.plot_debug import  plot_dets, plot_dets_heat
+        # # # debug #
+        # from utils.plot_debug import  plot_dets, plot_dets_heat, plot_cos_distance
         # plot_dets(dets, img0)
         # plot_dets_heat(dets, hm, img0)
+        # plot_cos_distance(id_feature)
         
         # vis
         '''
