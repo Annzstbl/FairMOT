@@ -161,11 +161,12 @@ class opts(object):
     
     # nms
     self.parser.add_argument('--nms_type', default='1')
-    self.nms_param_list=['--nms_kernel', '--nms_alpha', '--nms_iou_th', '--nms_dis_th']
+    self.nms_param_list=['--nms_kernel', '--nms_alpha', '--nms_iou_th', '--nms_dis_th', '--nms_cos_th']
     self.parser.add_argument('--nms_kernel', type=int, default=None, help='kernel-size')
     self.parser.add_argument('--nms_alpha', type=float, default=None, help='alpha')
     self.parser.add_argument('--nms_iou_th', type=float, default=None)
     self.parser.add_argument('--nms_dis_th', type=int, default=None)
+    self.parser.add_argument('--nms_cos_th', type=float, default=None)
     
     
   def parse(self, args=''):

@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from .utils import _gather_feat, _tranpose_and_gather_feat
 import torch.nn.functional as F
-from torchvision.ops import nms
+from torchvision.ops import nms, box_iou
 from typing import Optional
 
 # 全局变量
@@ -190,7 +190,7 @@ def _get_all_bboxes(heat: torch.tensor, wh:torch.tensor, reg: Optional[torch.ten
     return torch.cat([bboxes, scores, clses], dim=2)   
 
 @nms_decorator
-def _nms_iou_id(heat, id_feature, iou_th):
+def _nms_iou_id(heat, id_feature, cos_th):
     '''
         对heat进行基于id_feature余弦距离的nms操作
         (1) heat所有低于5e-2的全部删去
@@ -223,8 +223,8 @@ def _nms_iou_id(heat, id_feature, iou_th):
         # inds = inds[1:] #取出第0个
         if len(inds) == 1:
             break
-        iou = F.cosine_similarity(id_feature[inds[0]:inds[0]+1,:], id_feature[inds,:], dim=1)
-        remain = iou < iou_th
+        cos_dis = F.cosine_similarity(id_feature[inds[0]:inds[0]+1,:], id_feature[inds,:], dim=1)
+        remain = cos_dis < cos_th
         inds = inds[remain]
         if remain[0] :
             # 一般来讲iou[0] ==1 , 所以remain[0] == True, 这里以防万一
@@ -240,7 +240,7 @@ def _nms_iou_id(heat, id_feature, iou_th):
     return {'heat': out_heat.view([1,1,h, w]), 'id_feature': id_feature.permute([1,0]).view([1,-1, h, w])}
 
 @nms_decorator
-def _nms_iou_id_bi(heat, reg, id_feature, iou_th):
+def _nms_iou_id_bi(heat, reg, id_feature, cos_th):
     '''
         对heat进行基于id_feature余弦距离的nms操作
         (1) heat所有低于5e-2的全部删去
@@ -300,7 +300,7 @@ def _nms_iou_id_bi(heat, reg, id_feature, iou_th):
         if len(inds) == 1:
             break
         iou = F.cosine_similarity(id_feature_bi[inds[0]:inds[0]+1,:], id_feature_bi[inds,:], dim=1)
-        remain = iou < iou_th
+        remain = iou < cos_th
         inds = inds[remain]
         if remain[0] :
             # 一般来讲iou[0] ==1 , 所以remain[0] == True, 这里以防万一
@@ -316,7 +316,7 @@ def _nms_iou_id_bi(heat, reg, id_feature, iou_th):
     return {'heat': out_heat.view([1,1,h, w]), 'id_feature': id_feature, 'id_feature_bi': id_feature_bi.permute([1,0]).view([1,-1, h, w])}
 
 @nms_decorator
-def _nms_iou_id_nei(heat, id_feature, iou_th, dis_th):
+def _nms_iou_id_nei(heat, id_feature, cos_th, dis_th):
     '''
         对heat进行基于id_feature余弦距离的nms操作
         (1) heat所有低于5e-2的全部删去
@@ -355,7 +355,7 @@ def _nms_iou_id_nei(heat, id_feature, iou_th, dis_th):
         # 求coor[0]和其它coor的L2距离
         dis = torch.sqrt(torch.sum((coor[0] - coor)**2, dim=1))#[ N, 1]
         
-        remain = (iou < iou_th) | (dis > dis_th)
+        remain = (iou < cos_th) | (dis > dis_th)
         inds = inds[remain]
         coor = coor[remain]
         if remain[0] :
@@ -371,7 +371,66 @@ def _nms_iou_id_nei(heat, id_feature, iou_th, dis_th):
 
     return {'heat': out_heat.view([1,1,h, w]), 'id_feature': id_feature.permute([1,0]).view([1,-1, h, w])}
 
+@nms_decorator
+def _nms_iou_id_iou(heat, all_bboxes, id_feature, cos_th, iou_th):
+    '''
+        对heat进行基于id_feature余弦距离的nms操作
+        (1) heat所有低于5e-2的全部删去
+        (2) 对heat进行nms, 
+        (3) 评价指标一: cos距离小于cos_th的保留
+        (4) 评价指标二: iou距离小于iou_th的保留
+    '''
+       
+    assert heat.shape[0] == 1
+    assert heat.shape[1] == 1
+    
+    b, c, h, w = heat.size()
+    _, c_id, _, _ = id_feature.size()
+    
+    heat = heat.view(h*w, 1)
+    id_feature = id_feature.permute([0,2,3,1]).view(h*w, -1)
+    inds = torch.arange(h*w).to(heat.device).view([h*w, 1])
+    all_bboxes = all_bboxes.view([h*w, -1]) #[hw, 6]
+    
+    # 阈值5e-2
+    remain = heat > 5e-2
+    inds = inds[remain]
+    heat_remain = heat[remain]
+    
+    # 排序
+    sorted_heat, sort_inds = torch.sort(heat_remain, descending=True)
+    inds = inds[sort_inds] # [N, 1]
+    
+    #nms
+    out_inds = []
+    while len(inds) > 0: 
+        out_inds.append(inds[0].view([1]))
+        # inds = inds[1:] #取出第0个
+        if len(inds) == 1:
+            break
+        cos_dis = F.cosine_similarity(id_feature[inds[0]:inds[0]+1,:], id_feature[inds,:], dim=1)
+        iou_dis = box_iou(all_bboxes[inds[0]:inds[0]+1,:4], all_bboxes[inds,:4]).view(-1)#[N]
+        
+        # nms-iou是 iou_dis< iou_th的全部保留
+        # 在此基础上, 额外保留一些cos_dis < cos_th的
+        # 表示如果被iou剔除掉了, 但是cos距离足够小表示不是同一目标，不应被剔除
+        remain = (iou_dis < iou_th) | (cos_dis < cos_th)
+        inds = inds[remain]
+        
+        if remain[0] :
+            # 一般来讲iou[0] ==1 , 所以remain[0] == True, 这里以防万一
+            inds = inds[1:]
+    
+    #把out_inds转为tensor
+    out_inds = torch.cat(out_inds, dim = 0).view(-1) #[N]
+    
+    # 把keep的地方heat保留，其它的置0
+    out_heat = torch.zeros_like(heat).view(-1)
+    out_heat[out_inds] = heat.view(-1)[out_inds]
 
+    return {'heat': out_heat.view([1,1,h, w]), 'id_feature': id_feature.permute([1,0]).view([1,-1, h, w])}
+    
+    
 def nms_factory(heat, wh, reg, id_feature, ltrb, all_bboxes, nmsopt):
     nms_type = nmsopt['type']
     param = nmsopt['param']
@@ -388,6 +447,8 @@ def nms_factory(heat, wh, reg, id_feature, ltrb, all_bboxes, nmsopt):
         return _nms_iou_id_bi(heat, reg, id_feature, **param)
     elif nms_type =='6':
         return _nms_iou_id_nei(heat,  id_feature, **param)
+    elif nms_type == '7':
+        return _nms_iou_id_iou(heat, all_bboxes, id_feature, **param)
           
 def mot_decode(heat, wh, id_feature, nmsopt, reg=None, ltrb=False, K=100, img0_debug=None):
     '''
